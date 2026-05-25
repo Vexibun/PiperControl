@@ -17,6 +17,9 @@ voices/*.onnx
 voices/*.onnx.json
 voices/*.piper.json
 voices/*.json
+# But keep the README for setup instructions
+!voices/README.md
+!voices/.gitkeep
 
 # Runtime data
 history.json
