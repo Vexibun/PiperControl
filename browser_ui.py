@@ -65,6 +65,16 @@ class BrowserRequestHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"favorites": self.app.favorites}).encode("utf-8"))
             return
 
+        if parsed.path == "/api/presets":
+            self._set_json_headers()
+            self.wfile.write(json.dumps({"presets": self.app.presets}).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/recents":
+            self._set_json_headers()
+            self.wfile.write(json.dumps(self.app.recents).encode("utf-8"))
+            return
+
         self.send_error(404, "Not Found")
 
     def do_POST(self):
@@ -137,11 +147,6 @@ class BrowserRequestHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
             return
 
-        if parsed.path == "/api/presets":
-            self._set_json_headers()
-            self.wfile.write(json.dumps({"presets": self.app.presets}).encode("utf-8"))
-            return
-
         if parsed.path == "/api/preset/save":
             name = data.get("name", "").strip()
             if name:
@@ -183,11 +188,6 @@ class BrowserRequestHandler(http.server.BaseHTTPRequestHandler):
             else:
                 self._set_json_headers(404)
                 self.wfile.write(json.dumps({"ok": False, "error": "Preset not found"}).encode("utf-8"))
-            return
-
-        if parsed.path == "/api/recents":
-            self._set_json_headers()
-            self.wfile.write(json.dumps(self.app.recents).encode("utf-8"))
             return
 
         if parsed.path == "/api/shutdown":
@@ -373,64 +373,122 @@ class BrowserApp:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Piper Browser Control</title>
+<title>Piper TTS Control</title>
 <style>
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: flex; background: #121212; color: #eee; font-family: Inter, Arial, sans-serif; }
   
-  .sidebar { width: 280px; background: #1a1a1a; border-right: 1px solid #333; overflow-y: auto; height: 100vh; position: fixed; left: 0; top: 0; }
-  .main { flex: 1; margin-left: 280px; display: flex; justify-content: center; align-items: flex-start; padding: 24px; }
+  :root { --bg: #121212; --bg-light: #1e1e1e; --bg-sidebar: #1a1a1a; --border: #333; --text: #eee; --text-muted: #999; --primary: #4f8cff; --primary-hover: #6fa3ff; --secondary: #2d2d2d; --danger: #e34d5a; }
   
-  .sidebar-section { border-bottom: 1px solid #333; padding: 16px; }
-  .sidebar-title { font-weight: 600; font-size: 0.95rem; color: #4f8cff; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
-  .sidebar-title:hover { color: #6fa3ff; }
-  .toggle-btn { font-size: 0.8rem; color: #888; }
-  .sidebar-content { display: none; max-height: 300px; overflow-y: auto; }
+  body.light-mode { --bg: #f5f5f5; --bg-light: #ffffff; --bg-sidebar: #f0f0f0; --border: #ddd; --text: #222; --text-muted: #666; }
+  
+  body { margin: 0; min-height: 100vh; display: flex; background: var(--bg); color: var(--text); font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif; transition: background .2s, color .2s; }
+  
+  .sidebar { width: 300px; background: var(--bg-sidebar); border-right: 1px solid var(--border); overflow-y: auto; height: 100vh; position: fixed; left: 0; top: 0; }
+  .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
+  .theme-toggle { background: none; border: none; font-size: 1.2rem; cursor: pointer; }
+  .main { flex: 1; margin-left: 300px; display: flex; justify-content: center; align-items: flex-start; padding: 24px; }
+  
+  .sidebar-section { border-bottom: 1px solid var(--border); padding: 12px; }
+  .sidebar-title { font-weight: 600; font-size: 0.9rem; color: var(--primary); margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+  .sidebar-title:hover { color: var(--primary-hover); }
+  .toggle-btn { font-size: 0.75rem; color: var(--text-muted); }
+  .sidebar-content { display: none; max-height: 350px; overflow-y: auto; }
   .sidebar-content.open { display: block; }
   
-  .history-item, .favorite-item { padding: 10px 12px; background: #222; border-radius: 8px; margin-bottom: 8px; font-size: 0.9rem; cursor: pointer; transition: background .15s; display: flex; justify-content: space-between; align-items: center; }
-  .history-item:hover { background: #2d2d2d; }
-  .favorite-item:hover { background: #2d2d2d; }
+  .item { padding: 8px 10px; background: var(--bg-light); border-radius: 8px; margin-bottom: 6px; font-size: 0.85rem; cursor: pointer; transition: background .15s; display: flex; justify-content: space-between; align-items: center; }
+  .item:hover { background: var(--border); }
   .item-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .item-actions { display: flex; gap: 6px; }
-  .item-btn { background: none; border: none; color: #888; cursor: pointer; font-size: 0.8rem; padding: 0; }
-  .item-btn:hover { color: #bbb; }
+  .item-actions { display: flex; gap: 4px; }
+  .item-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.75rem; padding: 0; }
+  .item-btn:hover { color: var(--primary); }
+  
+  .search-box { width: 100%; padding: 8px; background: var(--bg-light); border: 1px solid var(--border); border-radius: 6px; color: var(--text); margin-bottom: 8px; font-size: 0.85rem; }
+  .recent-buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .recent-btn { padding: 6px 10px; background: var(--bg-light); border: 1px solid var(--border); border-radius: 6px; color: var(--text); cursor: pointer; font-size: 0.8rem; }
+  .recent-btn:hover { background: var(--primary); color: white; }
   
   .container { width: min(900px, 100%); }
-  h1 { margin: 0 0 20px 0; font-size: 1.8rem; }
-  .card { background: #1e1e1e; border: 1px solid #333; border-radius: 18px; padding: 24px; box-shadow: 0 16px 60px rgba(0,0,0,0.3); }
+  h1 { margin: 0 0 20px 0; font-size: 1.7rem; }
+  .card { background: var(--bg-light); border: 1px solid var(--border); border-radius: 14px; padding: 20px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); }
   
-  textarea { width: 100%; min-height: 200px; border: 1px solid #333; background: #111; color: #fff; padding: 16px; border-radius: 12px; resize: vertical; font-size: 1rem; line-height: 1.6; }
+  textarea { width: 100%; min-height: 180px; border: 1px solid var(--border); background: var(--bg); color: var(--text); padding: 14px; border-radius: 10px; resize: vertical; font-size: 1rem; line-height: 1.6; }
+  textarea.batch-mode { min-height: 300px; }
   
-  .row { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 18px; }
-  label { display: block; margin-bottom: 6px; color: #bbb; font-size: 0.9rem; }
-  select, input[type="range"], input[type="number"], input[type="text"] { width: 100%; border-radius: 10px; background: #222; color: #fff; border: 1px solid #333; padding: 10px 12px; }
+  .counter { font-size: 0.8rem; color: var(--text-muted); margin-top: 4px; }
+  .row { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-top: 16px; }
+  label { display: block; margin-bottom: 6px; color: var(--text); font-size: 0.9rem; font-weight: 500; }
+  select, input[type="range"], input[type="number"], input[type="text"], input[type="search"] { width: 100%; border-radius: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 10px; }
+  input[type="range"] { padding: 6px; }
   
-  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
-  button { border: none; border-radius: 10px; padding: 12px 18px; font-size: 0.95rem; cursor: pointer; transition: transform .15s ease, background .15s ease; }
-  button:hover { transform: translateY(-1px); }
-  .primary { background: #4f8cff; color: #fff; }
-  .secondary { background: #2d2d2d; color: #ddd; }
-  .danger { background: #e34d5a; color: #fff; }
-  .small { padding: 8px 12px; font-size: 0.85rem; }
+  .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  button { border: none; border-radius: 8px; padding: 10px 16px; font-size: 0.9rem; cursor: pointer; transition: transform .15s, background .15s; font-weight: 500; }
+  button:hover { transform: translateY(-2px); }
+  .primary { background: var(--primary); color: white; }
+  .primary:hover { background: var(--primary-hover); }
+  .secondary { background: var(--secondary); color: var(--text); }
+  .secondary:hover { background: var(--border); }
+  .danger { background: var(--danger); color: white; }
+  .small { padding: 6px 10px; font-size: 0.8rem; }
   
-  .status { margin-top: 12px; font-size: 0.9rem; color: #8fa; }
-  .field-inline { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
-  .field-inline span { font-size: 0.9rem; color: #999; }
+  .status { margin-top: 10px; font-size: 0.9rem; color: #6f9; }
+  .field-inline { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+  .field-inline label { margin-bottom: 0; }
+  
+  .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
+  .modal.open { display: flex; }
+  .modal-content { background: var(--bg-light); border-radius: 12px; padding: 24px; max-width: 500px; max-height: 80vh; overflow-y: auto; }
+  .modal-close { float: right; cursor: pointer; font-size: 1.5rem; color: var(--text-muted); }
+  
+  .shortcut-list { display: grid; gap: 10px; margin-top: 12px; }
+  .shortcut { display: grid; grid-template-columns: 120px 1fr; gap: 12px; padding: 8px; background: var(--bg); border-radius: 6px; }
+  .shortcut-key { font-weight: 600; color: var(--primary); font-family: monospace; }
   
   @media (max-width: 768px) {
-    .sidebar { width: 0; }
+    .sidebar { width: 0; position: absolute; z-index: 999; }
     .main { margin-left: 0; }
   }
 </style>
 </head>
 <body>
+
 <div class="sidebar">
+  <div class="sidebar-header">
+    <div style="font-weight: 600;">Piper</div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
+  </div>
+  
+  <div class="sidebar-section">
+    <div class="sidebar-title" onclick="toggleSection('presets')">
+      ⚙️ Presets <span class="toggle-btn">▼</span>
+    </div>
+    <div id="presets" class="sidebar-content open">
+      <div id="presets-list"></div>
+      <button class="secondary small" style="width:100%; margin-top:8px;" onclick="savePreset()">Save Current</button>
+    </div>
+  </div>
+  
+  <div class="sidebar-section">
+    <div class="sidebar-title" onclick="toggleSection('recents')">
+      📌 Recent <span class="toggle-btn">▼</span>
+    </div>
+    <div id="recents" class="sidebar-content open">
+      <div style="margin-bottom:8px;">
+        <small style="color:var(--text-muted);">Voices</small>
+        <div id="recent-voices" class="recent-buttons"></div>
+      </div>
+      <div>
+        <small style="color:var(--text-muted);">Devices</small>
+        <div id="recent-devices" class="recent-buttons"></div>
+      </div>
+    </div>
+  </div>
+  
   <div class="sidebar-section">
     <div class="sidebar-title" onclick="toggleSection('history')">
       📋 History <span class="toggle-btn">▼</span>
     </div>
     <div id="history" class="sidebar-content open">
+      <input type="search" id="history-search" class="search-box" placeholder="Search...">
       <div id="history-list"></div>
       <button class="secondary small" style="width:100%; margin-top:8px;" onclick="clearHistory()">Clear All</button>
     </div>
@@ -442,7 +500,7 @@ class BrowserApp:
     </div>
     <div id="favorites" class="sidebar-content open">
       <div id="favorites-list"></div>
-      <button class="secondary small" style="width:100%; margin-top:8px;" onclick="saveFavorite()">Save as Favorite</button>
+      <button class="secondary small" style="width:100%; margin-top:8px;" onclick="saveFavorite()">Save Current</button>
     </div>
   </div>
 </div>
@@ -451,12 +509,22 @@ class BrowserApp:
   <div class="container">
     <div class="card">
       <h1>Piper TTS</h1>
-      <textarea id="text" placeholder="Type your text here... (Ctrl+Enter to speak, Escape to stop)"></textarea>
+      
+      <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+        <button class="secondary small" onclick="toggleBatchMode()" title="Switch to batch mode">📝 Batch</button>
+        <button class="secondary small" onclick="showHelp()" title="Show keyboard shortcuts">⌨️ Help</button>
+      </div>
+      
+      <textarea id="text" placeholder="Type your text here... (Ctrl+Enter to speak, Escape to stop)" ondrop="handleDrop(event)" ondragover="event.preventDefault()" ondragenter="event.preventDefault()"></textarea>
+      <div class="counter">
+        <span id="char-count">0</span> characters | <span id="word-count">0</span> words | <span id="read-time">~0 sec</span> read
+      </div>
       
       <div class="row">
         <div>
           <label for="voice">Voice</label>
           <select id="voice"></select>
+          <div id="voice-preview" style="margin-top:6px;"></div>
         </div>
         <div>
           <label for="output_device">Output Device</label>
@@ -473,6 +541,10 @@ class BrowserApp:
           <label for="noise">Noise <span id="noise_val">0.5</span></label>
           <input type="range" id="noise" min="0.0" max="1.0" step="0.05">
         </div>
+        <div>
+          <label for="volume">Volume <span id="volume_val">100</span>%</label>
+          <input type="range" id="volume" min="0" max="100" step="5" value="100">
+        </div>
       </div>
       
       <div class="row">
@@ -487,17 +559,18 @@ class BrowserApp:
       </div>
       
       <div class="field-inline">
-        <label><input type="checkbox" id="mute"> Mute Output</label>
+        <label><input type="checkbox" id="mute"> Mute</label>
         <label><input type="checkbox" id="autoClear"> Auto-clear</label>
-        <span id="remote_info"></span>
+        <label><input type="checkbox" id="cleanup"> Clean text</label>
+        <span id="remote_info" style="color:var(--text-muted); font-size:0.85rem;"></span>
       </div>
       
-      <div class="actions">
-        <button class="primary" onclick="onSpeak()">Speak</button>
-        <button class="secondary" onclick="onStop()">Stop</button>
-        <button class="secondary" onclick="onClear()">Clear</button>
-        <button class="secondary" onclick="saveSettings()">Save Settings</button>
-        <button class="danger" onclick="onShutdown()">Shutdown</button>
+      <div class="controls">
+        <button class="primary" onclick="onSpeak()">▶️ Speak</button>
+        <button class="secondary" onclick="onStop()">⏹️ Stop</button>
+        <button class="secondary" onclick="onClear()">✕ Clear</button>
+        <button class="secondary" onclick="saveSettings()">💾 Save</button>
+        <button class="danger" onclick="onShutdown()">🔴 Shutdown</button>
       </div>
       
       <div class="status" id="status">Loading...</div>
@@ -505,16 +578,82 @@ class BrowserApp:
   </div>
 </div>
 
+<div id="help-modal" class="modal">
+  <div class="modal-content">
+    <span class="modal-close" onclick="closeHelp()">&times;</span>
+    <h2>Keyboard Shortcuts</h2>
+    <div class="shortcut-list">
+      <div class="shortcut">
+        <div class="shortcut-key">Ctrl+Enter</div>
+        <div>Speak text</div>
+      </div>
+      <div class="shortcut">
+        <div class="shortcut-key">Escape</div>
+        <div>Stop speaking</div>
+      </div>
+      <div class="shortcut">
+        <div class="shortcut-key">Ctrl+L</div>
+        <div>Clear text</div>
+      </div>
+      <div class="shortcut">
+        <div class="shortcut-key">Ctrl+B</div>
+        <div>Toggle batch mode</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const q = id => document.getElementById(id);
 const setStatus = msg => q('status').textContent = msg;
+let allHistory = [];
 
-const toggleSection = (id) => {
-  const section = q(id);
-  section.classList.toggle('open');
+const toggleSection = (id) => q(id).classList.toggle('open');
+const toggleTheme = () => {
+  document.body.classList.toggle('light-mode');
+  localStorage.setItem('theme', document.body.classList.contains('light-mode') ? 'light' : 'dark');
+};
+const toggleBatchMode = () => {
+  q('text').classList.toggle('batch-mode');
+  q('text').placeholder = q('text').classList.contains('batch-mode') ? 
+    'Enter multiple lines to speak sequentially...' : 
+    'Type your text here...';
+};
+const showHelp = () => q('help-modal').classList.add('open');
+const closeHelp = () => q('help-modal').classList.remove('open');
+
+const handleDrop = (e) => {
+  e.preventDefault();
+  const files = e.dataTransfer.files;
+  if (files.length > 0) {
+    const reader = new FileReader();
+    reader.onload = (event) => q('text').value = event.target.result;
+    reader.readAsText(files[0]);
+    setStatus('File loaded');
+  }
+};
+
+const updateCounter = () => {
+  const text = q('text').value;
+  const chars = text.length;
+  const words = text.trim().split(/\\s+/).filter(w => w.length > 0).length;
+  const readTime = Math.ceil(words / 150 * 60);
+  q('char-count').textContent = chars;
+  q('word-count').textContent = words;
+  q('read-time').textContent = '~' + readTime;
+};
+
+const cleanupText = (text) => {
+  return text
+    .replace(/\\s+/g, ' ')
+    .replace(/([.!?])\\s+([A-Z])/g, '$1 $2')
+    .trim();
 };
 
 const loadState = async () => {
+  const savedTheme = localStorage.getItem('theme');
+  if (savedTheme === 'light') document.body.classList.add('light-mode');
+  
   try {
     const res = await fetch('/api/status');
     const body = await res.json();
@@ -522,25 +661,26 @@ const loadState = async () => {
     const voices = body.voices;
     const sinks = body.sinks;
 
-    const voiceSelect = q('voice');
-    voiceSelect.innerHTML = voices.map(v => `<option value="${v}">${v}</option>`).join('');
-    if (settings.voice) voiceSelect.value = settings.voice;
+    q('voice').innerHTML = voices.map(v => `<option value="${v}">${v}</option>`).join('');
+    if (settings.voice) q('voice').value = settings.voice;
 
-    const deviceSelect = q('output_device');
-    deviceSelect.innerHTML = sinks.map(s => `<option value="${s}">${s}</option>`).join('');
-    if (settings.output_device) deviceSelect.value = settings.output_device;
+    q('output_device').innerHTML = sinks.map(s => `<option value="${s}">${s}</option>`).join('');
+    if (settings.output_device) q('output_device').value = settings.output_device;
 
     q('speed').value = settings.speed ?? 1.0;
     q('noise').value = settings.noise ?? 0.5;
     q('noise_w').value = settings.noise_w ?? 0.5;
     q('sentence_silence').value = settings.sentence_silence ?? 0.0;
     q('mute').checked = settings.mute ?? false;
+    q('volume').value = localStorage.getItem('volume') || 100;
 
-    ['speed', 'noise', 'noise_w', 'sentence_silence'].forEach(id => updateLabel(id));
+    ['speed', 'noise', 'noise_w', 'sentence_silence', 'volume'].forEach(id => updateLabel(id));
     q('remote_info').textContent = `${body.local_ip}:${body.port}`;
 
     await loadHistory();
     await loadFavorites();
+    await loadPresets();
+    await loadRecents();
     setStatus('Ready');
   } catch (e) {
     setStatus('Error loading state');
@@ -551,19 +691,30 @@ const loadHistory = async () => {
   try {
     const res = await fetch('/api/history');
     const data = await res.json();
-    const list = q('history-list');
-    list.innerHTML = data.history.slice().reverse().map((item, i) => `
-      <div class="history-item">
-        <span class="item-text" title="${item.text}">${item.text}</span>
-        <div class="item-actions">
-          <button class="item-btn" onclick="insertText('${item.text.replace(/'/g, "\\'")}')" title="Use">↗</button>
-        </div>
-      </div>
-    `).join('');
+    allHistory = data.history;
+    renderHistory(allHistory);
   } catch (e) {
     console.error('Failed to load history', e);
   }
 };
+
+const renderHistory = (items) => {
+  const list = q('history-list');
+  list.innerHTML = items.slice().reverse().map(item => `
+    <div class="item">
+      <span class="item-text" title="${item.text}">${item.text}</span>
+      <div class="item-actions">
+        <button class="item-btn" onclick="insertHistoryText('${item.text.replace(/'/g, "\\'")}')" title="Use">↗</button>
+      </div>
+    </div>
+  `).join('');
+};
+
+q('history-search').addEventListener('input', (e) => {
+  const query = e.target.value.toLowerCase();
+  const filtered = allHistory.filter(item => item.text.toLowerCase().includes(query));
+  renderHistory(filtered);
+});
 
 const loadFavorites = async () => {
   try {
@@ -571,11 +722,11 @@ const loadFavorites = async () => {
     const data = await res.json();
     const list = q('favorites-list');
     list.innerHTML = Object.entries(data.favorites).map(([name, text]) => `
-      <div class="favorite-item">
+      <div class="item">
         <span class="item-text" title="${name}: ${text}">${name}</span>
         <div class="item-actions">
-          <button class="item-btn" onclick="insertText('${text.replace(/'/g, "\\'")}')" title="Use">↗</button>
-          <button class="item-btn" onclick="removeFavorite('${name.replace(/'/g, "\\'")}')" title="Delete">✕</button>
+          <button class="item-btn" onclick="insertHistoryText('${text.replace(/'/g, "\\'")}')" title="Use">↗</button>
+          <button class="item-btn" onclick="removeFavorite('${name.replace(/'/g, "\\\\'")}')" title="Delete">✕</button>
         </div>
       </div>
     `).join('');
@@ -584,10 +735,55 @@ const loadFavorites = async () => {
   }
 };
 
-const updateLabel = id => q(`${id}_val`).textContent = q(id).value;
-['speed','noise','noise_w','sentence_silence'].forEach(id => {
-  q(id).addEventListener('input', () => updateLabel(id));
+const loadPresets = async () => {
+  try {
+    const res = await fetch('/api/presets');
+    const data = await res.json();
+    const list = q('presets-list');
+    list.innerHTML = Object.entries(data.presets).map(([name, preset]) => `
+      <div class="item">
+        <span class="item-text" title="${name}">${name}</span>
+        <div class="item-actions">
+          <button class="item-btn" onclick="loadPreset('${name}')" title="Load">↗</button>
+          <button class="item-btn" onclick="deletePreset('${name}')" title="Delete">✕</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Failed to load presets', e);
+  }
+};
+
+const loadRecents = async () => {
+  try {
+    const res = await fetch('/api/recents');
+    const data = await res.json();
+    
+    q('recent-voices').innerHTML = data.voices.map(v => `
+      <button class="recent-btn" onclick="setVoice('${v}')">${v}</button>
+    `).join('');
+    
+    q('recent-devices').innerHTML = data.devices.map(d => `
+      <button class="recent-btn" onclick="setDevice('${d}')">${d}</button>
+    `).join('');
+  } catch (e) {
+    console.error('Failed to load recents', e);
+  }
+};
+
+const updateLabel = id => {
+  const el = q(`${id}_val`);
+  if (el) el.textContent = id === 'volume' ? q(id).value : q(id).value;
+};
+
+['speed','noise','noise_w','sentence_silence','volume'].forEach(id => {
+  q(id).addEventListener('input', () => {
+    updateLabel(id);
+    if (id === 'volume') localStorage.setItem('volume', q(id).value);
+  });
 });
+
+q('text').addEventListener('input', updateCounter);
 
 const readSettings = () => ({
   voice: q('voice').value,
@@ -599,24 +795,39 @@ const readSettings = () => ({
   mute: q('mute').checked,
 });
 
-const insertText = (text) => {
-  q('text').value = text;
-  q('text').focus();
-};
+const insertText = (text) => { q('text').value = text; q('text').focus(); updateCounter(); };
+const insertHistoryText = (text) => insertText(text);
+const setVoice = (v) => { q('voice').value = v; updateSettings(); };
+const setDevice = (d) => { q('output_device').value = d; updateSettings(); };
 
 const onSpeak = async () => {
-  const text = q('text').value.trim();
+  let text = q('text').value.trim();
   if (!text) { setStatus('Enter text before speaking'); return; }
-  const body = {...readSettings(), text};
-  await fetch('/api/speak', {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(body),
-  });
-  setStatus('Speaking...');
-  if (q('autoClear').checked) {
-    setTimeout(() => q('text').value = '', 100);
+  if (q('cleanup').checked) text = cleanupText(text);
+  
+  const isBatch = q('text').classList.contains('batch-mode');
+  if (isBatch) {
+    const lines = text.split('\\n').filter(l => l.trim());
+    for (const line of lines) {
+      const body = {...readSettings(), text: line};
+      await fetch('/api/speak', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+      await new Promise(r => setTimeout(r, 500));
+    }
+    setStatus('Batch complete');
+  } else {
+    const body = {...readSettings(), text};
+    await fetch('/api/speak', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    setStatus('Speaking...');
   }
+  if (q('autoClear').checked) setTimeout(() => { q('text').value = ''; updateCounter(); }, 100);
 };
 
 const onStop = async () => {
@@ -624,58 +835,75 @@ const onStop = async () => {
   setStatus('Stopped');
 };
 
-const onClear = () => {
-  q('text').value = '';
-  q('text').focus();
-  setStatus('Text cleared');
-};
+const onClear = () => { q('text').value = ''; q('text').focus(); updateCounter(); setStatus('Text cleared'); };
 
 const saveFavorite = async () => {
   const text = q('text').value.trim();
   if (!text) { setStatus('Enter text to save'); return; }
-  
   const name = prompt('Favorite name:', '');
   if (!name) return;
-  
   const res = await fetch('/api/favorite/add', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({name, text}),
   });
-  
-  if (res.ok) {
-    setStatus('Favorite saved');
-    loadFavorites();
-  } else {
-    setStatus('Failed to save favorite');
-  }
+  if (res.ok) { setStatus('Favorite saved'); loadFavorites(); } 
+  else setStatus('Failed to save favorite');
 };
 
 const removeFavorite = async (name) => {
   if (!confirm('Remove this favorite?')) return;
-  
   const res = await fetch('/api/favorite/remove', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({name}),
   });
-  
+  if (res.ok) { setStatus('Favorite removed'); loadFavorites(); }
+};
+
+const savePreset = async () => {
+  const name = prompt('Preset name:', '');
+  if (!name) return;
+  const res = await fetch('/api/preset/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, ...readSettings()}),
+  });
+  if (res.ok) { setStatus('Preset saved'); loadPresets(); }
+};
+
+const loadPreset = async (name) => {
+  const res = await fetch('/api/preset/load', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name}),
+  });
   if (res.ok) {
-    setStatus('Favorite removed');
-    loadFavorites();
-  } else {
-    setStatus('Failed to remove favorite');
+    const data = await res.json();
+    q('voice').value = data.preset.voice;
+    q('speed').value = data.preset.speed;
+    q('noise').value = data.preset.noise;
+    q('noise_w').value = data.preset.noise_w;
+    q('sentence_silence').value = data.preset.sentence_silence;
+    ['speed', 'noise', 'noise_w', 'sentence_silence'].forEach(updateLabel);
+    setStatus('Preset loaded');
   }
+};
+
+const deletePreset = async (name) => {
+  if (!confirm('Delete this preset?')) return;
+  const res = await fetch('/api/preset/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name}),
+  });
+  if (res.ok) { setStatus('Preset deleted'); loadPresets(); }
 };
 
 const clearHistory = async () => {
   if (!confirm('Clear all history?')) return;
-  
   const res = await fetch('/api/history/clear', {method: 'POST'});
-  if (res.ok) {
-    setStatus('History cleared');
-    loadHistory();
-  }
+  if (res.ok) { setStatus('History cleared'); loadHistory(); }
 };
 
 const saveSettings = async () => {
@@ -684,7 +912,15 @@ const saveSettings = async () => {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(readSettings()),
   });
-  setStatus(res.ok ? 'Settings saved' : 'Failed to save settings');
+  setStatus(res.ok ? 'Settings saved' : 'Failed to save');
+};
+
+const updateSettings = async () => {
+  await fetch('/api/settings', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(readSettings()),
+  });
 };
 
 const onShutdown = async () => {
@@ -695,8 +931,9 @@ const onShutdown = async () => {
 
 window.addEventListener('DOMContentLoaded', () => {
   loadState();
-  const textarea = q('text');
-  textarea.addEventListener('keydown', event => {
+  updateCounter();
+  
+  q('text').addEventListener('keydown', event => {
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
       onSpeak();
@@ -704,14 +941,9 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 
   window.addEventListener('keydown', event => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      onStop();
-    }
-    if ((event.ctrlKey || event.metaKey) && event.key === 'l') {
-      event.preventDefault();
-      onClear();
-    }
+    if (event.key === 'Escape') { event.preventDefault(); onStop(); }
+    if ((event.ctrlKey || event.metaKey) && event.key === 'l') { event.preventDefault(); onClear(); }
+    if ((event.ctrlKey || event.metaKey) && event.key === 'b') { event.preventDefault(); toggleBatchMode(); }
   });
 });
 </script>
