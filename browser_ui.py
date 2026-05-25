@@ -55,6 +55,16 @@ class BrowserRequestHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(data).encode("utf-8"))
             return
 
+        if parsed.path == "/api/history":
+            self._set_json_headers()
+            self.wfile.write(json.dumps({"history": self.app.history}).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/favorites":
+            self._set_json_headers()
+            self.wfile.write(json.dumps({"favorites": self.app.favorites}).encode("utf-8"))
+            return
+
         self.send_error(404, "Not Found")
 
     def do_POST(self):
@@ -95,6 +105,38 @@ class BrowserRequestHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": True, "settings": self.app.settings}).encode("utf-8"))
             return
 
+        if parsed.path == "/api/favorite/add":
+            name = data.get("name", "").strip()
+            text = data.get("text", "").strip()
+            if name and text:
+                self.app.favorites[name] = text
+                self.app.save_favorites()
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
+            else:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"ok": False, "error": "Name and text required"}).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/favorite/remove":
+            name = data.get("name", "").strip()
+            if name and name in self.app.favorites:
+                del self.app.favorites[name]
+                self.app.save_favorites()
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
+            else:
+                self._set_json_headers(404)
+                self.wfile.write(json.dumps({"ok": False, "error": "Favorite not found"}).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/history/clear":
+            self.app.history = []
+            self.app.save_history()
+            self._set_json_headers()
+            self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
+            return
+
         if parsed.path == "/api/shutdown":
             self._set_json_headers()
             self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
@@ -109,6 +151,7 @@ class BrowserRequestHandler(http.server.BaseHTTPRequestHandler):
 
 
 class BrowserApp:
+
     def __init__(self, port: int = 8080):
         self.port = port
         self.settings = load_settings()
@@ -116,6 +159,52 @@ class BrowserApp:
         self.tts_thread = None
         self.server = None
         self.thread = None
+        self.history = self.load_history()
+        self.favorites = self.load_favorites()
+
+    def load_history(self):
+        history_path = Path(__file__).parent / "history.json"
+        if history_path.exists():
+            try:
+                with open(history_path, "r", encoding="utf-8") as f:
+                    return json.load(f) or []
+            except Exception:
+                return []
+        return []
+
+    def save_history(self):
+        history_path = Path(__file__).parent / "history.json"
+        try:
+            with open(history_path, "w", encoding="utf-8") as f:
+                json.dump(self.history[-50:], f, indent=2)  # Keep last 50 items
+        except Exception as e:
+            print(f"Failed to save history: {e}")
+
+    def load_favorites(self):
+        favorites_path = Path(__file__).parent / "favorites.json"
+        if favorites_path.exists():
+            try:
+                with open(favorites_path, "r", encoding="utf-8") as f:
+                    return json.load(f) or {}
+            except Exception:
+                return {}
+        return {}
+
+    def save_favorites(self):
+        favorites_path = Path(__file__).parent / "favorites.json"
+        try:
+            with open(favorites_path, "w", encoding="utf-8") as f:
+                json.dump(self.favorites, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save favorites: {e}")
+
+    def add_to_history(self, text: str):
+        from datetime import datetime
+        self.history.append({
+            "text": text,
+            "timestamp": datetime.now().isoformat(),
+        })
+        self.save_history()
 
     def update_settings(self, data: dict):
         if "voice" in data:
@@ -155,6 +244,8 @@ class BrowserApp:
         if self.tts_thread and self.tts_thread.is_alive():
             return
 
+        self.add_to_history(text)
+
         self.tts_thread = threading.Thread(
             target=self.engine._run,
             args=(text, self.settings),
@@ -177,123 +268,238 @@ class BrowserApp:
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Piper Browser Control</title>
 <style>
-  body { margin: 0; min-height: 100vh; display: flex; justify-content: center; align-items: flex-start; background: #121212; color: #eee; font-family: Inter, Arial, sans-serif; }
-  .container { width: min(980px, 100%); padding: 24px; }
-  h1 { margin-bottom: 16px; font-size: 1.9rem; }
-  .card { background: #1e1e1e; border: 1px solid #333; border-radius: 18px; padding: 20px; box-shadow: 0 16px 60px rgba(0,0,0,0.3); }
-  textarea { width: 100%; min-height: 200px; border: 1px solid #333; background: #111; color: #fff; padding: 16px; border-radius: 14px; resize: vertical; font-size: 1rem; line-height: 1.6; }
-  .row { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 18px; }
-  label { display: block; margin-bottom: 6px; color: #bbb; font-size: 0.95rem; }
-  select, input[type="range"], input[type="number"] { width: 100%; border-radius: 12px; background: #222; color: #fff; border: 1px solid #333; padding: 10px 12px; }
-  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
-  button { border: none; border-radius: 12px; padding: 14px 22px; font-size: 1rem; cursor: pointer; transition: transform .15s ease, background .15s ease; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: flex; background: #121212; color: #eee; font-family: Inter, Arial, sans-serif; }
+  
+  .sidebar { width: 280px; background: #1a1a1a; border-right: 1px solid #333; overflow-y: auto; height: 100vh; position: fixed; left: 0; top: 0; }
+  .main { flex: 1; margin-left: 280px; display: flex; justify-content: center; align-items: flex-start; padding: 24px; }
+  
+  .sidebar-section { border-bottom: 1px solid #333; padding: 16px; }
+  .sidebar-title { font-weight: 600; font-size: 0.95rem; color: #4f8cff; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+  .sidebar-title:hover { color: #6fa3ff; }
+  .toggle-btn { font-size: 0.8rem; color: #888; }
+  .sidebar-content { display: none; max-height: 300px; overflow-y: auto; }
+  .sidebar-content.open { display: block; }
+  
+  .history-item, .favorite-item { padding: 10px 12px; background: #222; border-radius: 8px; margin-bottom: 8px; font-size: 0.9rem; cursor: pointer; transition: background .15s; display: flex; justify-content: space-between; align-items: center; }
+  .history-item:hover { background: #2d2d2d; }
+  .favorite-item:hover { background: #2d2d2d; }
+  .item-text { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item-actions { display: flex; gap: 6px; }
+  .item-btn { background: none; border: none; color: #888; cursor: pointer; font-size: 0.8rem; padding: 0; }
+  .item-btn:hover { color: #bbb; }
+  
+  .container { width: min(900px, 100%); }
+  h1 { margin: 0 0 20px 0; font-size: 1.8rem; }
+  .card { background: #1e1e1e; border: 1px solid #333; border-radius: 18px; padding: 24px; box-shadow: 0 16px 60px rgba(0,0,0,0.3); }
+  
+  textarea { width: 100%; min-height: 200px; border: 1px solid #333; background: #111; color: #fff; padding: 16px; border-radius: 12px; resize: vertical; font-size: 1rem; line-height: 1.6; }
+  
+  .row { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 18px; }
+  label { display: block; margin-bottom: 6px; color: #bbb; font-size: 0.9rem; }
+  select, input[type="range"], input[type="number"], input[type="text"] { width: 100%; border-radius: 10px; background: #222; color: #fff; border: 1px solid #333; padding: 10px 12px; }
+  
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+  button { border: none; border-radius: 10px; padding: 12px 18px; font-size: 0.95rem; cursor: pointer; transition: transform .15s ease, background .15s ease; }
   button:hover { transform: translateY(-1px); }
   .primary { background: #4f8cff; color: #fff; }
   .secondary { background: #2d2d2d; color: #ddd; }
   .danger { background: #e34d5a; color: #fff; }
-  .status { margin-top: 14px; font-size: 0.95rem; color: #8fa; }
-  .field-inline { display: grid; gap: 12px; grid-template-columns: auto 1fr; align-items: center; }
-  .field-inline span { font-size: 0.95rem; color: #ccc; }
+  .small { padding: 8px 12px; font-size: 0.85rem; }
+  
+  .status { margin-top: 12px; font-size: 0.9rem; color: #8fa; }
+  .field-inline { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+  .field-inline span { font-size: 0.9rem; color: #999; }
+  
+  @media (max-width: 768px) {
+    .sidebar { width: 0; }
+    .main { margin-left: 0; }
+  }
 </style>
 </head>
 <body>
-<div class="container">
-  <div class="card">
-    <h1>Piper Browser Control</h1>
-    <textarea id="text" placeholder="Type your text here..."></textarea>
-    <div class="row">
-      <div>
-        <label for="voice">Voice</label>
-        <select id="voice"></select>
-      </div>
-      <div>
-        <label for="output_device">Output device</label>
-        <select id="output_device"></select>
-      </div>
+<div class="sidebar">
+  <div class="sidebar-section">
+    <div class="sidebar-title" onclick="toggleSection('history')">
+      📋 History <span class="toggle-btn">▼</span>
     </div>
-    <div class="row">
-      <div>
-        <label for="speed">Speed <span id="speed_val"></span></label>
-        <input type="range" id="speed" min="0.6" max="1.6" step="0.05">
-      </div>
-      <div>
-        <label for="noise">Noise <span id="noise_val"></span></label>
-        <input type="range" id="noise" min="0.0" max="1.0" step="0.05">
-      </div>
+    <div id="history" class="sidebar-content open">
+      <div id="history-list"></div>
+      <button class="secondary small" style="width:100%; margin-top:8px;" onclick="clearHistory()">Clear All</button>
     </div>
-    <div class="row">
-      <div>
-        <label for="noise_w">Clarity <span id="noise_w_val"></span></label>
-        <input type="range" id="noise_w" min="0.0" max="1.0" step="0.05">
-      </div>
-      <div>
-        <label for="sentence_silence">Silence <span id="sentence_silence_val"></span></label>
-        <input type="range" id="sentence_silence" min="0.0" max="2.0" step="0.1">
-      </div>
+  </div>
+  
+  <div class="sidebar-section">
+    <div class="sidebar-title" onclick="toggleSection('favorites')">
+      ⭐ Favorites <span class="toggle-btn">▼</span>
     </div>
-    <div class="field-inline">
-      <label for="mute"><input type="checkbox" id="mute"> Mute</label>
-      <span id="remote_info"></span>
+    <div id="favorites" class="sidebar-content open">
+      <div id="favorites-list"></div>
+      <button class="secondary small" style="width:100%; margin-top:8px;" onclick="saveFavorite()">Save as Favorite</button>
     </div>
-    <div class="actions">
-      <button class="primary" onclick="onSpeak()">Speak</button>
-      <button class="secondary" onclick="onStop()">Stop</button>
-      <button class="secondary" onclick="onClear()">Clear</button>
-      <button class="danger" onclick="saveSettings()">Save settings</button>
-      <button class="danger" onclick="onShutdown()">Shutdown server</button>
-    </div>
-    <div class="status" id="status"></div>
   </div>
 </div>
+
+<div class="main">
+  <div class="container">
+    <div class="card">
+      <h1>Piper TTS</h1>
+      <textarea id="text" placeholder="Type your text here... (Ctrl+Enter to speak, Escape to stop)"></textarea>
+      
+      <div class="row">
+        <div>
+          <label for="voice">Voice</label>
+          <select id="voice"></select>
+        </div>
+        <div>
+          <label for="output_device">Output Device</label>
+          <select id="output_device"></select>
+        </div>
+      </div>
+      
+      <div class="row">
+        <div>
+          <label for="speed">Speed <span id="speed_val">1.0</span></label>
+          <input type="range" id="speed" min="0.6" max="1.6" step="0.05">
+        </div>
+        <div>
+          <label for="noise">Noise <span id="noise_val">0.5</span></label>
+          <input type="range" id="noise" min="0.0" max="1.0" step="0.05">
+        </div>
+      </div>
+      
+      <div class="row">
+        <div>
+          <label for="noise_w">Clarity <span id="noise_w_val">0.5</span></label>
+          <input type="range" id="noise_w" min="0.0" max="1.0" step="0.05">
+        </div>
+        <div>
+          <label for="sentence_silence">Silence <span id="sentence_silence_val">0.0</span></label>
+          <input type="range" id="sentence_silence" min="0.0" max="2.0" step="0.1">
+        </div>
+      </div>
+      
+      <div class="field-inline">
+        <label><input type="checkbox" id="mute"> Mute Output</label>
+        <label><input type="checkbox" id="autoClear"> Auto-clear</label>
+        <span id="remote_info"></span>
+      </div>
+      
+      <div class="actions">
+        <button class="primary" onclick="onSpeak()">Speak</button>
+        <button class="secondary" onclick="onStop()">Stop</button>
+        <button class="secondary" onclick="onClear()">Clear</button>
+        <button class="secondary" onclick="saveSettings()">Save Settings</button>
+        <button class="danger" onclick="onShutdown()">Shutdown</button>
+      </div>
+      
+      <div class="status" id="status">Loading...</div>
+    </div>
+  </div>
+</div>
+
 <script>
-const setStatus = msg => document.getElementById('status').textContent = msg;
-const query = selector => document.getElementById(selector);
+const q = id => document.getElementById(id);
+const setStatus = msg => q('status').textContent = msg;
 
-const loadState = async () => {
-  const res = await fetch('/api/status');
-  const body = await res.json();
-  const settings = body.settings;
-  const voices = body.voices;
-  const sinks = body.sinks;
-
-  const voiceSelect = query('voice');
-  voiceSelect.innerHTML = voices.map(v => `<option value="${v}">${v}</option>`).join('');
-  if (settings.voice) voiceSelect.value = settings.voice;
-
-  const deviceSelect = query('output_device');
-  deviceSelect.innerHTML = sinks.map(s => `<option value="${s}">${s}</option>`).join('');
-  if (settings.output_device) deviceSelect.value = settings.output_device;
-
-  query('speed').value = settings.speed ?? 1.0;
-  query('noise').value = settings.noise ?? 0.5;
-  query('noise_w').value = settings.noise_w ?? 0.5;
-  query('sentence_silence').value = settings.sentence_silence ?? 0.0;
-  query('mute').checked = settings.mute ?? false;
-
-  ['speed', 'noise', 'noise_w', 'sentence_silence'].forEach(id => updateLabel(id));
-
-  query('remote_info').textContent = `Server running at ${body.local_ip}:${body.port}`;
-  setStatus('Ready');
+const toggleSection = (id) => {
+  const section = q(id);
+  section.classList.toggle('open');
 };
 
-const updateLabel = id => query(`${id}_val`).textContent = query(id).value;
+const loadState = async () => {
+  try {
+    const res = await fetch('/api/status');
+    const body = await res.json();
+    const settings = body.settings;
+    const voices = body.voices;
+    const sinks = body.sinks;
+
+    const voiceSelect = q('voice');
+    voiceSelect.innerHTML = voices.map(v => `<option value="${v}">${v}</option>`).join('');
+    if (settings.voice) voiceSelect.value = settings.voice;
+
+    const deviceSelect = q('output_device');
+    deviceSelect.innerHTML = sinks.map(s => `<option value="${s}">${s}</option>`).join('');
+    if (settings.output_device) deviceSelect.value = settings.output_device;
+
+    q('speed').value = settings.speed ?? 1.0;
+    q('noise').value = settings.noise ?? 0.5;
+    q('noise_w').value = settings.noise_w ?? 0.5;
+    q('sentence_silence').value = settings.sentence_silence ?? 0.0;
+    q('mute').checked = settings.mute ?? false;
+
+    ['speed', 'noise', 'noise_w', 'sentence_silence'].forEach(id => updateLabel(id));
+    q('remote_info').textContent = `${body.local_ip}:${body.port}`;
+
+    await loadHistory();
+    await loadFavorites();
+    setStatus('Ready');
+  } catch (e) {
+    setStatus('Error loading state');
+  }
+};
+
+const loadHistory = async () => {
+  try {
+    const res = await fetch('/api/history');
+    const data = await res.json();
+    const list = q('history-list');
+    list.innerHTML = data.history.slice().reverse().map((item, i) => `
+      <div class="history-item">
+        <span class="item-text" title="${item.text}">${item.text}</span>
+        <div class="item-actions">
+          <button class="item-btn" onclick="insertText('${item.text.replace(/'/g, "\\'")}')" title="Use">↗</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Failed to load history', e);
+  }
+};
+
+const loadFavorites = async () => {
+  try {
+    const res = await fetch('/api/favorites');
+    const data = await res.json();
+    const list = q('favorites-list');
+    list.innerHTML = Object.entries(data.favorites).map(([name, text]) => `
+      <div class="favorite-item">
+        <span class="item-text" title="${name}: ${text}">${name}</span>
+        <div class="item-actions">
+          <button class="item-btn" onclick="insertText('${text.replace(/'/g, "\\'")}')" title="Use">↗</button>
+          <button class="item-btn" onclick="removeFavorite('${name.replace(/'/g, "\\'")}')" title="Delete">✕</button>
+        </div>
+      </div>
+    `).join('');
+  } catch (e) {
+    console.error('Failed to load favorites', e);
+  }
+};
+
+const updateLabel = id => q(`${id}_val`).textContent = q(id).value;
 ['speed','noise','noise_w','sentence_silence'].forEach(id => {
-  query(id).addEventListener('input', () => updateLabel(id));
+  q(id).addEventListener('input', () => updateLabel(id));
 });
 
 const readSettings = () => ({
-  voice: query('voice').value,
-  output_device: query('output_device').value,
-  speed: query('speed').value,
-  noise: query('noise').value,
-  noise_w: query('noise_w').value,
-  sentence_silence: query('sentence_silence').value,
-  mute: query('mute').checked,
+  voice: q('voice').value,
+  output_device: q('output_device').value,
+  speed: q('speed').value,
+  noise: q('noise').value,
+  noise_w: q('noise_w').value,
+  sentence_silence: q('sentence_silence').value,
+  mute: q('mute').checked,
 });
 
+const insertText = (text) => {
+  q('text').value = text;
+  q('text').focus();
+};
+
 const onSpeak = async () => {
-  const text = query('text').value.trim();
-  if (!text) { setStatus('Enter text before speaking.'); return; }
+  const text = q('text').value.trim();
+  if (!text) { setStatus('Enter text before speaking'); return; }
   const body = {...readSettings(), text};
   await fetch('/api/speak', {
     method: 'POST',
@@ -301,6 +507,9 @@ const onSpeak = async () => {
     body: JSON.stringify(body),
   });
   setStatus('Speaking...');
+  if (q('autoClear').checked) {
+    setTimeout(() => q('text').value = '', 100);
+  }
 };
 
 const onStop = async () => {
@@ -308,40 +517,93 @@ const onStop = async () => {
   setStatus('Stopped');
 };
 
-const onClear = () => { query('text').value = ''; setStatus('Text cleared'); };
+const onClear = () => {
+  q('text').value = '';
+  q('text').focus();
+  setStatus('Text cleared');
+};
+
+const saveFavorite = async () => {
+  const text = q('text').value.trim();
+  if (!text) { setStatus('Enter text to save'); return; }
+  
+  const name = prompt('Favorite name:', '');
+  if (!name) return;
+  
+  const res = await fetch('/api/favorite/add', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, text}),
+  });
+  
+  if (res.ok) {
+    setStatus('Favorite saved');
+    loadFavorites();
+  } else {
+    setStatus('Failed to save favorite');
+  }
+};
+
+const removeFavorite = async (name) => {
+  if (!confirm('Remove this favorite?')) return;
+  
+  const res = await fetch('/api/favorite/remove', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name}),
+  });
+  
+  if (res.ok) {
+    setStatus('Favorite removed');
+    loadFavorites();
+  } else {
+    setStatus('Failed to remove favorite');
+  }
+};
+
+const clearHistory = async () => {
+  if (!confirm('Clear all history?')) return;
+  
+  const res = await fetch('/api/history/clear', {method: 'POST'});
+  if (res.ok) {
+    setStatus('History cleared');
+    loadHistory();
+  }
+};
 
 const saveSettings = async () => {
-  await fetch('/api/settings', {
+  const res = await fetch('/api/settings', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(readSettings()),
   });
-  setStatus('Settings saved');
+  setStatus(res.ok ? 'Settings saved' : 'Failed to save settings');
 };
 
 const onShutdown = async () => {
+  if (!confirm('Shutdown server?')) return;
   await fetch('/api/shutdown', { method: 'POST' });
-  setStatus('Server is shutting down');
+  setStatus('Server shutting down...');
 };
 
 window.addEventListener('DOMContentLoaded', () => {
   loadState();
-  const textarea = query('text');
+  const textarea = q('text');
   textarea.addEventListener('keydown', event => {
-    if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
       onSpeak();
     }
   });
 
   window.addEventListener('keydown', event => {
-    if (event.key === 'F1') {
-      event.preventDefault();
-      onSpeak();
-    }
     if (event.key === 'Escape') {
       event.preventDefault();
       onStop();
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key === 'l') {
+      event.preventDefault();
+      onClear();
     }
   });
 });
