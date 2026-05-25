@@ -26,3 +26,4 @@ voices/*.json
 history.json
 favorites.json
 recents.json
+presets.json
