@@ -4,6 +4,7 @@ __pycache__/
 *.so
 
 # Editor files
+.continue/
 *.swp
 *.swo
 *.swn
@@ -24,3 +25,4 @@ voices/*.json
 # Runtime data
 history.json
 favorites.json
+recents.json
