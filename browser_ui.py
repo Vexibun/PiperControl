@@ -137,6 +137,59 @@ class BrowserRequestHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
             return
 
+        if parsed.path == "/api/presets":
+            self._set_json_headers()
+            self.wfile.write(json.dumps({"presets": self.app.presets}).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/preset/save":
+            name = data.get("name", "").strip()
+            if name:
+                self.app.presets[name] = {
+                    "voice": data.get("voice"),
+                    "speed": data.get("speed"),
+                    "noise": data.get("noise"),
+                    "noise_w": data.get("noise_w"),
+                    "sentence_silence": data.get("sentence_silence"),
+                }
+                self.app.save_presets()
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
+            else:
+                self._set_json_headers(400)
+                self.wfile.write(json.dumps({"ok": False, "error": "Name required"}).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/preset/load":
+            name = data.get("name", "").strip()
+            if name and name in self.app.presets:
+                preset = self.app.presets[name]
+                self.app.settings.update(preset)
+                save_settings(self.app.settings)
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True, "preset": preset}).encode("utf-8"))
+            else:
+                self._set_json_headers(404)
+                self.wfile.write(json.dumps({"ok": False, "error": "Preset not found"}).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/preset/delete":
+            name = data.get("name", "").strip()
+            if name and name in self.app.presets:
+                del self.app.presets[name]
+                self.app.save_presets()
+                self._set_json_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
+            else:
+                self._set_json_headers(404)
+                self.wfile.write(json.dumps({"ok": False, "error": "Preset not found"}).encode("utf-8"))
+            return
+
+        if parsed.path == "/api/recents":
+            self._set_json_headers()
+            self.wfile.write(json.dumps(self.app.recents).encode("utf-8"))
+            return
+
         if parsed.path == "/api/shutdown":
             self._set_json_headers()
             self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
@@ -161,6 +214,8 @@ class BrowserApp:
         self.thread = None
         self.history = self.load_history()
         self.favorites = self.load_favorites()
+        self.presets = self.load_presets()
+        self.recents = self.load_recents()
 
     def load_history(self):
         history_path = Path(__file__).parent / "history.json"
@@ -206,9 +261,60 @@ class BrowserApp:
         })
         self.save_history()
 
+    def load_presets(self):
+        presets_path = Path(__file__).parent / "presets.json"
+        if presets_path.exists():
+            try:
+                with open(presets_path, "r", encoding="utf-8") as f:
+                    return json.load(f) or {}
+            except Exception:
+                return {}
+        return {}
+
+    def save_presets(self):
+        presets_path = Path(__file__).parent / "presets.json"
+        try:
+            with open(presets_path, "w", encoding="utf-8") as f:
+                json.dump(self.presets, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save presets: {e}")
+
+    def load_recents(self):
+        recents_path = Path(__file__).parent / "recents.json"
+        if recents_path.exists():
+            try:
+                with open(recents_path, "r", encoding="utf-8") as f:
+                    return json.load(f) or {"voices": [], "devices": []}
+            except Exception:
+                return {"voices": [], "devices": []}
+        return {"voices": [], "devices": []}
+
+    def save_recents(self):
+        recents_path = Path(__file__).parent / "recents.json"
+        try:
+            with open(recents_path, "w", encoding="utf-8") as f:
+                json.dump(self.recents, f, indent=2)
+        except Exception as e:
+            print(f"Failed to save recents: {e}")
+
+    def add_recent_voice(self, voice: str):
+        if voice in self.recents["voices"]:
+            self.recents["voices"].remove(voice)
+        self.recents["voices"].insert(0, voice)
+        self.recents["voices"] = self.recents["voices"][:3]  # Keep last 3
+        self.save_recents()
+
+    def add_recent_device(self, device: str):
+        if device in self.recents["devices"]:
+            self.recents["devices"].remove(device)
+        self.recents["devices"].insert(0, device)
+        self.recents["devices"] = self.recents["devices"][:3]  # Keep last 3
+        self.save_recents()
+
     def update_settings(self, data: dict):
         if "voice" in data:
             self.settings["voice"] = data["voice"]
+            self.add_recent_voice(data["voice"])
         if "speed" in data:
             try:
                 self.settings["speed"] = float(data["speed"])
@@ -231,6 +337,7 @@ class BrowserApp:
                 pass
         if "output_device" in data:
             self.settings["output_device"] = data["output_device"]
+            self.add_recent_device(data["output_device"])
         if "mute" in data:
             self.settings["mute"] = bool(data["mute"])
             self.engine.set_mute(self.settings["mute"])
