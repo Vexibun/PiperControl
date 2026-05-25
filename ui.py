@@ -22,122 +22,49 @@ class PiperUI(Gtk.Application):
         self.history: List[str] = self.settings.get("history", [])[:10]
         self.favorites: List[str] = self.settings.get("favorites", [])
 
-        # Phone Control
         self.web_control = WebControl(
             tts_callback=self.remote_speak,
             stop_callback=self.engine.stop
         )
-        self.phone_status_label = None
+        self.sidebar_visible = False
 
     def do_activate(self) -> None:
         self.window = Gtk.ApplicationWindow(application=self)
         self.window.set_title("Piper TTS Control")
-        self.window.set_default_size(740, 720)   # Smaller default height
+        self.window.set_default_size(820, 680)
 
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        main_box.set_margin_top(24)
-        main_box.set_margin_bottom(24)
-        main_box.set_margin_start(24)
-        main_box.set_margin_end(24)
+        header = Gtk.HeaderBar()
+        header.set_show_title_buttons(True)
+        self.window.set_titlebar(header)
 
-        # Text input
+        title = Gtk.Label()
+        title.set_markup("<b>Piper TTS</b>")
+        header.set_title_widget(title)
+
+        menu_btn = Gtk.Button(label="⋯")
+        menu_btn.connect("clicked", self.toggle_sidebar)
+        header.pack_end(menu_btn)
+
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+
         scroll = Gtk.ScrolledWindow(vexpand=True)
         self.text_view = Gtk.TextView()
         self.text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
         self.text_view.set_editable(True)
         self.text_view.set_cursor_visible(True)
-        self.text_view.set_pixels_above_lines(8)
-        self.text_view.set_pixels_below_lines(8)
-        self.text_view.set_left_margin(12)
-        self.text_view.set_right_margin(12)
+        self.text_view.set_pixels_above_lines(12)
+        self.text_view.set_pixels_below_lines(12)
+        self.text_view.set_left_margin(16)
+        self.text_view.set_right_margin(16)
 
         scroll.set_child(self.text_view)
         main_box.append(scroll)
 
-        # Enter to speak
-        key_ctrl = Gtk.EventControllerKey()
-        key_ctrl.connect("key-pressed", self.on_textview_key_pressed)
-        self.text_view.add_controller(key_ctrl)
-
-        # Audio Settings
-        audio_exp = Gtk.Expander(label="Audio Settings", expanded=False)
-        audio_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        audio_box.set_margin_top(12)
-        audio_box.set_margin_bottom(12)
-        audio_box.set_margin_start(16)
-        audio_box.set_margin_end(16)
-
-        voices = list_voices() or ["No voices available"]
-        self.voice_combo = self._create_dropdown(voices, "voice")
-        audio_box.append(self._labeled_row("Voice:", self.voice_combo))
-
-        sinks = list_audio_sinks()
-        display_names, self.sink_map = self._build_device_list(sinks)
-        self.device_combo = self._create_dropdown(display_names, "output_device")
-        audio_box.append(self._labeled_row("Output:", self.device_combo))
-
-        audio_box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
-
-        self._add_slider(audio_box, "Speed", "speed", 0.7, 1.5, 0.05)
-        self._add_slider(audio_box, "Noise", "noise", 0.0, 1.0, 0.05)
-        self._add_slider(audio_box, "Volume", "volume", 0.0, 2.0, 0.05)
-
-        audio_exp.set_child(audio_box)
-        main_box.append(audio_exp)
-
-        # History & Favorites
-        hist_exp = Gtk.Expander(label="History & Favorites", expanded=False)
-        hist_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        hist_box.set_margin_top(12)
-        hist_box.set_margin_bottom(12)
-        hist_box.set_margin_start(16)
-        hist_box.set_margin_end(16)
-
-        hist_box.append(Gtk.Label(label="Recent messages", xalign=0.0))
-        self.recent_list = Gtk.ListBox()
-        self.recent_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        recent_scroll = Gtk.ScrolledWindow()
-        recent_scroll.set_child(self.recent_list)
-        recent_scroll.set_max_content_height(160)
-        hist_box.append(recent_scroll)
-        self._refresh_recent()
-
-        hist_box.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
-
-        hist_box.append(Gtk.Label(label="Favorites", xalign=0.0))
-        self.fav_list = Gtk.ListBox()
-        self.fav_list.set_selection_mode(Gtk.SelectionMode.NONE)
-        fav_scroll = Gtk.ScrolledWindow()
-        fav_scroll.set_child(self.fav_list)
-        fav_scroll.set_max_content_height(160)
-        hist_box.append(fav_scroll)
-        self._refresh_favorites()
-
-        hist_exp.set_child(hist_box)
-        main_box.append(hist_exp)
-
-        # Phone Control (now collapsible)
-        phone_exp = Gtk.Expander(label="Phone Control (Remote Access)", expanded=False)
-        phone_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        phone_box.set_margin_top(12)
-        phone_box.set_margin_bottom(12)
-        phone_box.set_margin_start(16)
-        phone_box.set_margin_end(16)
-
-        self.phone_status_label = Gtk.Label(label="Phone Control: Disabled")
-        phone_box.append(self.phone_status_label)
-
-        self.phone_btn = Gtk.ToggleButton(label="Enable Phone Control")
-        self.phone_btn.connect("toggled", self.on_phone_toggled)
-        phone_box.append(self.phone_btn)
-
-        phone_exp.set_child(phone_box)
-        main_box.append(phone_exp)
-
-        # Action buttons
+        # Bottom Buttons
         btn_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         btn_box.set_halign(Gtk.Align.CENTER)
-        btn_box.set_margin_top(16)
+        btn_box.set_margin_top(12)
+        btn_box.set_margin_bottom(16)
 
         speak_btn = Gtk.Button(label="Speak")
         speak_btn.connect("clicked", self.on_speak)
@@ -156,47 +83,87 @@ class PiperUI(Gtk.Application):
             self.mute_btn.set_label("Unmute")
             self.mute_btn.add_css_class("destructive-action")
 
-        tip_btn = Gtk.Button(label="?")
-        tip_btn.set_tooltip_text("Tip: For languages with accents (á, ã, ç, õ, etc.), install fcitx5-gtk")
-
         btn_box.append(speak_btn)
         btn_box.append(stop_btn)
         btn_box.append(clear_btn)
         btn_box.append(self.mute_btn)
-        btn_box.append(tip_btn)
 
         main_box.append(btn_box)
 
-        self.window.set_child(main_box)
+        # Sidebar
+        self.sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        self.sidebar.set_margin_top(16)
+        self.sidebar.set_margin_bottom(16)
+        self.sidebar.set_margin_start(12)
+        self.sidebar.set_margin_end(16)
+
+        self.voice_combo = self._create_dropdown(list_voices() or ["No voices"], "voice")
+        self.sidebar.append(self._labeled_row("Voice", self.voice_combo))
+
+        sinks = list_audio_sinks()
+        display_names, self.sink_map = self._build_device_list(sinks)
+        self.device_combo = self._create_dropdown(display_names, "output_device")
+        self.sidebar.append(self._labeled_row("Output", self.device_combo))
+
+        self.sidebar.append(Gtk.Label(label="Voice Modulation", xalign=0.0))
+        self._add_slider(self.sidebar, "Speed", "speed", 0.6, 1.6, 0.05)
+        self._add_slider(self.sidebar, "Noise", "noise", 0.0, 1.0, 0.05)
+        self._add_slider(self.sidebar, "Clarity", "noise_w", 0.0, 1.0, 0.05)
+        self._add_slider(self.sidebar, "Silence", "sentence_silence", 0.0, 2.0, 0.1)
+
+        phone_exp = Gtk.Expander(label="Phone Control", expanded=False)
+        phone_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.phone_status_label = Gtk.Label(label="Disabled")
+        phone_box.append(self.phone_status_label)
+
+        self.phone_btn = Gtk.ToggleButton(label="Enable Remote Access")
+        self.phone_btn.connect("toggled", self.on_phone_toggled)
+        phone_box.append(self.phone_btn)
+        phone_exp.set_child(phone_box)
+        self.sidebar.append(phone_exp)
+
+        self.paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        self.paned.set_wide_handle(True)
+        self.paned.set_position(820)
+        self.paned.set_start_child(main_box)
+        self.paned.set_end_child(self.sidebar)
+
+        self.window.set_child(self.paned)
         self.window.present()
+
+        # Key handler
+        key_ctrl = Gtk.EventControllerKey()
+        key_ctrl.connect("key-pressed", self.on_textview_key_pressed)
+        self.text_view.add_controller(key_ctrl)
+
+    def toggle_sidebar(self, button):
+        self.sidebar_visible = not self.sidebar_visible
+        if self.sidebar_visible:
+            self.paned.set_position(520)
+        else:
+            self.paned.set_position(820)
 
     def on_phone_toggled(self, button: Gtk.ToggleButton):
         if button.get_active():
             if self.web_control.start():
-                button.set_label("Stop Phone Control")
-                button.add_css_class("destructive-action")
+                button.set_label("Stop Remote")
                 self._update_phone_status(True)
             else:
                 button.set_active(False)
         else:
             self.web_control.stop()
-            button.set_label("Enable Phone Control")
-            button.remove_css_class("destructive-action")
+            button.set_label("Enable Remote Access")
             self._update_phone_status(False)
 
     def _update_phone_status(self, enabled: bool):
-        if self.phone_status_label:
-            if enabled:
-                ip = self.web_control.get_local_ip()
-                port = self.web_control.port
-                self.phone_status_label.set_markup(
-                    f'<span color="#00ff88">🌐 Active → http://{ip}:{port}</span>'
-                )
-            else:
-                self.phone_status_label.set_markup("Phone Control: <span color=\"#aaaaaa\">Disabled</span>")
+        if enabled:
+            ip = self.web_control.get_local_ip()
+            self.phone_status_label.set_markup(f'<span color="#00ff88">Active → {ip}:8080</span>')
+        else:
+            self.phone_status_label.set_text("Disabled")
 
     def remote_speak(self, text: str):
-        if text and text.strip():
+        if text.strip():
             GLib.idle_add(self._remote_speak_ui, text.strip())
 
     def _remote_speak_ui(self, text: str):
@@ -204,12 +171,12 @@ class PiperUI(Gtk.Application):
         self.on_speak(None)
         return False
 
-    # ===================== Helper Methods =====================
+    # ===================== Helpers =====================
 
     def _labeled_row(self, text: str, widget: Gtk.Widget) -> Gtk.Box:
         box = Gtk.Box(spacing=12)
         lbl = Gtk.Label(label=text, xalign=0.0)
-        lbl.set_width_chars(14)
+        lbl.set_width_chars(10)
         box.append(lbl)
         box.append(widget)
         widget.set_hexpand(True)
@@ -240,7 +207,7 @@ class PiperUI(Gtk.Application):
         def setup(_, item):
             lbl = Gtk.Label(xalign=0.0)
             lbl.set_ellipsize(Pango.EllipsizeMode.END)
-            lbl.set_width_chars(45)
+            lbl.set_width_chars(32)
             item.set_child(lbl)
 
         def bind(_, item):
@@ -254,7 +221,6 @@ class PiperUI(Gtk.Application):
     def _build_device_list(self, sinks: List[str]) -> tuple[list[str], dict[str, str]]:
         displays = []
         mapping = {}
-
         for name in sinks:
             if not name: continue
             display = name
@@ -264,34 +230,19 @@ class PiperUI(Gtk.Application):
                 display = "Analog Stereo"
             elif "easyeffects" in name.lower():
                 display = "EasyEffects"
-            elif "virtual" in name.lower():
-                display = "Virtual Output"
             else:
                 if '.' in name:
                     display = name.split('.')[-1].replace('_', ' ').replace('-', ' ').title()
-                if len(display) > 40:
-                    display = display[:37] + "…"
-
-            base = display
-            i = 1
-            while display in mapping:
-                display = f"{base} ({i})"
-                i += 1
-
+                if len(display) > 30:
+                    display = display[:27] + "..."
             displays.append(display)
             mapping[display] = name
-
-        if not displays:
-            displays = ["Default"]
-            mapping["Default"] = "default"
-
         return displays, mapping
 
-    def _add_slider(self, parent: Gtk.Box, label: str, key: str,
-                    minv: float, maxv: float, step: float):
+    def _add_slider(self, parent: Gtk.Box, label: str, key: str, minv: float, maxv: float, step: float):
         row = Gtk.Box(spacing=12)
         lbl = Gtk.Label(label=label, xalign=0.0)
-        lbl.set_width_chars(14)
+        lbl.set_width_chars(10)
         row.append(lbl)
 
         val_lbl = Gtk.Label(label=f"{self.settings.get(key, 1.0):.2f}")
@@ -301,7 +252,6 @@ class PiperUI(Gtk.Application):
         slider.set_value(self.settings.get(key, 1.0))
         slider.set_draw_value(False)
         slider.set_hexpand(True)
-        slider.set_size_request(200, -1)
         row.append(slider)
 
         parent.append(row)
@@ -314,63 +264,7 @@ class PiperUI(Gtk.Application):
 
         slider.connect("value-changed", on_change)
 
-    def _refresh_recent(self):
-        while child := self.recent_list.get_first_child():
-            self.recent_list.remove(child)
-        for text in self.history:
-            self._add_history_row(self.recent_list, text, favorite=False)
-
-    def _refresh_favorites(self):
-        while child := self.fav_list.get_first_child():
-            self.fav_list.remove(child)
-        for text in self.favorites:
-            self._add_history_row(self.fav_list, text, favorite=True)
-
-    def _add_history_row(self, listbox: Gtk.ListBox, text: str, favorite: bool):
-        row = Gtk.ListBoxRow()
-        box = Gtk.Box(spacing=8)
-        box.set_margin_top(4)
-        box.set_margin_bottom(4)
-        box.set_margin_start(8)
-        box.set_margin_end(8)
-
-        preview = text[:70] + ("…" if len(text) > 70 else "")
-        lbl = Gtk.Label(label=preview, ellipsize=Pango.EllipsizeMode.END, xalign=0.0)
-        lbl.set_hexpand(True)
-        box.append(lbl)
-
-        use_btn = Gtk.Button(label="Use")
-        use_btn.connect("clicked", lambda _, t=text: self.text_view.get_buffer().set_text(t))
-        box.append(use_btn)
-
-        if not favorite:
-            star_btn = Gtk.Button(label="★")
-            star_btn.connect("clicked", lambda _, t=text: self._add_favorite(t))
-            box.append(star_btn)
-        else:
-            del_btn = Gtk.Button(label="Delete")
-            del_btn.add_css_class("destructive-action")
-            del_btn.connect("clicked", lambda _, t=text: self._remove_favorite(t))
-            box.append(del_btn)
-
-        row.set_child(box)
-        listbox.append(row)
-
-    def _add_favorite(self, text: str):
-        if text and text not in self.favorites:
-            self.favorites.insert(0, text)
-            self.settings["favorites"] = self.favorites
-            save_settings(self.settings)
-            self._refresh_favorites()
-
-    def _remove_favorite(self, text: str):
-        if text in self.favorites:
-            self.favorites.remove(text)
-            self.settings["favorites"] = self.favorites
-            save_settings(self.settings)
-            self._refresh_favorites()
-
-    def on_speak(self, button):
+    def on_speak(self, button=None):
         buf = self.text_view.get_buffer()
         start, end = buf.get_bounds()
         text = buf.get_text(start, end, False).strip()
@@ -390,14 +284,6 @@ class PiperUI(Gtk.Application):
         self.settings["output_device"] = device
 
         save_settings(self.settings)
-
-        if text in self.history:
-            self.history.remove(text)
-        self.history.insert(0, text)
-        self.history = self.history[:10]
-        self.settings["history"] = self.history
-        save_settings(self.settings)
-        self._refresh_recent()
 
         if self.tts_thread and self.tts_thread.is_alive():
             return
@@ -423,9 +309,7 @@ class PiperUI(Gtk.Application):
             button.remove_css_class("destructive-action")
 
     def on_textview_key_pressed(self, controller, keyval, keycode, state):
-        if keyval == Gdk.KEY_Return:
-            if state & Gdk.ModifierType.SHIFT_MASK:
-                return False
+        if keyval == Gdk.KEY_F1:           # ← F1 to Speak
             self.on_speak(None)
             return True
         return False
