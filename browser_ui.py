@@ -437,6 +437,10 @@ class BrowserApp:
   .status { margin-top: 10px; font-size: 0.9rem; color: #6f9; }
   .field-inline { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
   .field-inline label { margin-bottom: 0; }
+  .remote-access { margin-top: 14px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); }
+  .remote-access-title { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 6px; }
+  .remote-access-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .remote-access-url { font-family: monospace; word-break: break-all; flex: 1 1 260px; }
   
   .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
   .modal.open { display: flex; }
@@ -467,6 +471,8 @@ class BrowserApp:
     .controls button { width: 100%; }
     .field-inline { gap: 10px; align-items: flex-start; }
     .field-inline label { width: 100%; }
+    .remote-access-row button,
+    .remote-access-row a { width: 100%; text-align: center; }
     .toolbar { gap: 8px; }
     .toolbar button { flex: 1 1 140px; }
     .shortcut { grid-template-columns: 1fr; gap: 6px; }
@@ -577,6 +583,7 @@ class BrowserApp:
       <div class="toolbar">
         <button class="secondary small" onclick="toggleBatchMode()" title="Switch to batch mode">📝 Batch</button>
         <button class="secondary small" onclick="showHelp()" title="Show keyboard shortcuts">⌨️ Help</button>
+        <button class="secondary small" onclick="showRemoteAccess()" title="Show phone access address">Phone Access</button>
       </div>
       
       <textarea id="text" placeholder="Type your text here... (Ctrl+Enter to speak, Escape to stop)" ondrop="handleDrop(event)" ondragover="event.preventDefault()" ondragenter="event.preventDefault()"></textarea>
@@ -632,7 +639,6 @@ class BrowserApp:
         <label><input type="checkbox" id="autoClear"> Auto-clear</label>
         <label><input type="checkbox" id="cleanup"> Clean text</label>
         <label><input type="checkbox" id="enterToSpeak"> Enter to speak</label>
-        <span id="remote_info" style="color:var(--text-muted); font-size:0.85rem;"></span>
       </div>
       
       <div class="controls">
@@ -673,10 +679,25 @@ class BrowserApp:
   </div>
 </div>
 
+<div id="remote-modal" class="modal" onclick="if (event.target === this) closeRemoteAccess()">
+  <div class="modal-content">
+    <span class="modal-close" onclick="closeRemoteAccess()">&times;</span>
+    <div class="remote-access">
+      <div class="remote-access-title">Phone Access</div>
+      <div class="remote-access-row">
+        <div id="remote_info" class="remote-access-url">Loading...</div>
+        <a id="remote_open" class="secondary small" href="#" target="_blank" rel="noopener noreferrer">Open</a>
+        <button class="secondary small" type="button" onclick="copyRemoteUrl()">Copy IP</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const q = id => document.getElementById(id);
 const setStatus = msg => q('status').textContent = msg;
 let allHistory = [];
+let remoteUrl = '';
 
 const toggleSection = (id) => q(id).classList.toggle('open');
 const toggleSidebar = () => {
@@ -701,6 +722,26 @@ const toggleBatchMode = () => {
 };
 const showHelp = () => q('help-modal').classList.add('open');
 const closeHelp = () => q('help-modal').classList.remove('open');
+const showRemoteAccess = () => {
+  if (!remoteUrl) {
+    setStatus('Remote URL not ready yet');
+    return;
+  }
+  q('remote-modal').classList.add('open');
+};
+const closeRemoteAccess = () => q('remote-modal').classList.remove('open');
+const copyRemoteUrl = async () => {
+  if (!remoteUrl) {
+    setStatus('Remote URL not ready yet');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(remoteUrl);
+    setStatus('Phone access URL copied');
+  } catch (error) {
+    setStatus(error.message || 'Failed to copy URL');
+  }
+};
 
 const handleDrop = (e) => {
   e.preventDefault();
@@ -756,7 +797,9 @@ const loadState = async () => {
     q('volume').value = localStorage.getItem('volume') || 100;
 
     ['speed', 'noise', 'noise_w', 'sentence_silence', 'volume'].forEach(id => updateLabel(id));
-    q('remote_info').textContent = `${body.local_ip}:${body.port}`;
+    remoteUrl = `http://${body.local_ip}:${body.port}`;
+    q('remote_info').textContent = remoteUrl;
+    q('remote_open').href = remoteUrl;
 
     await loadHistory();
     await loadFavorites();
@@ -1069,10 +1112,27 @@ window.addEventListener('DOMContentLoaded', () => {
             return False
 
         handler = lambda *args, **kwargs: BrowserRequestHandler(*args, app=self, **kwargs)
-        self.server = socketserver.ThreadingTCPServer(("", self.port), handler)
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
-        return True
+        requested_port = self.port
+        last_error = None
+
+        for candidate_port in range(requested_port, requested_port + 10):
+            try:
+                self.server = socketserver.ThreadingTCPServer(("", candidate_port), handler)
+                self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+                self.thread.start()
+                self.port = candidate_port
+                if candidate_port != requested_port:
+                    print(f"[warn] Port {requested_port} was busy. Using fallback port {candidate_port}.")
+                return True
+            except OSError as exc:
+                last_error = exc
+                self.server = None
+                self.thread = None
+                if candidate_port == requested_port:
+                    print(f"[warn] Could not bind server on port {candidate_port}: {exc}")
+
+        print(f"[error] Could not bind server on ports {requested_port}-{requested_port + 9}: {last_error}")
+        return False
 
     def stop_server(self):
         if self.server:
@@ -1082,20 +1142,33 @@ window.addEventListener('DOMContentLoaded', () => {
             self.thread = None
 
     def run(self):
+        print("[1/4] Preparing browser control...")
         if not self.start():
-            print(f"Failed to start browser control on port {self.port}")
+            print(f"[error] Failed to start browser control on port {self.port}")
             return
 
-        url = f"http://127.0.0.1:{self.port}"
-        print(f"Browser control started → {url}")
+        local_url = f"http://127.0.0.1:{self.port}"
+        lan_url = f"http://{get_local_ip()}:{self.port}"
+        print(f"[2/4] Browser control server is running on port {self.port}")
+        print(f"      Local:   {local_url}")
+        print(f"      Network: {lan_url}")
+        print("[3/4] Attempting to open your default browser...")
         try:
-            webbrowser.open(url)
-        except Exception:
-            pass
+            opened = webbrowser.open(local_url)
+            if opened:
+                print("[ok] Browser launch request sent successfully.")
+            else:
+                print("[warn] Browser did not open automatically.")
+                print(f"       Open this address manually: {local_url}")
+        except Exception as exc:
+            print(f"[warn] Browser launch failed: {exc}")
+            print(f"       Open this address manually: {local_url}")
+
+        print("[4/4] Server is ready. Press Ctrl+C to stop.")
         try:
             self.thread.join()
         except KeyboardInterrupt:
-            pass
+            print("\n[stop] Shutting down browser control...")
         finally:
             self.stop_server()
 

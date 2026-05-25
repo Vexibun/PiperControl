@@ -15,8 +15,12 @@ def main():
             except ValueError:
                 pass
 
-    from browser_ui import BrowserApp
     print("Starting Piper Browser Control...")
+    print(f"Requested port: {port}")
+    print("Loading application modules...")
+    from browser_ui import BrowserApp
+
+    print("Creating browser control application...")
     app = BrowserApp(port=port)
     app.run()
 
