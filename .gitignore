@@ -1,0 +1,19 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.so
+
+# Editor files
+*.swp
+*.swo
+*.swn
+*.DS_Store
+
+# Local config
+config.json
+
+# Local voice models and metadata
+voices/*.onnx
+voices/*.onnx.json
+voices/*.piper.json
+voices/*.json

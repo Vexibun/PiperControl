@@ -10,13 +10,13 @@ This application is intentionally designed to be fully portable:
 - Just copy the entire folder anywhere
 - Place your voice models (*.onnx + *.onnx.json) in the voices/ subfolder
 - Run: python3 main.py
-- All settings, history and favorites are saved in config.json inside the same folder
+- All settings are saved in config.json inside the same folder
 
-No installation, no system-wide dependencies beyond Python + GTK4 + audio tools.
+No installation, no system-wide GUI toolkit dependencies are required — just a modern browser and audio tools.
 
 Features
 --------
-• Large text input area
+• Browser-based control panel
 • Voice selection (auto-detected from voices/ folder)
 • Audio output device selection (PulseAudio / PipeWire sinks)
 • Adjustable parameters:
@@ -34,22 +34,18 @@ Software you need (usually already present on most Linux distributions):
 
 • Linux with PipeWire or PulseAudio
 • Python 3.8 or newer
-• PyGObject + GTK 4
-  
-  Ubuntu/Debian:    sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0
-  
-  Fedora:           sudo dnf install python3-gobject gtk4
-  
-  Arch:             sudo pacman -S python-gobject gtk4
 
 • piper-tts binary in your $PATH
   (download from https://github.com/rhasspy/piper/releases)
 
 • pactl (comes with pulseaudio-utils or pipewire-pulse)
 
-• pw-play (PipeWire)  or  paplay (PulseAudio fallback)
+• pw-play (PipeWire) or paplay (PulseAudio fallback)
 
 • sox (strongly recommended for volume control when slider ≠ 1.0)
+  sudo apt install sox   /   sudo dnf install sox   /   sudo pacman -S sox
+
+• Any modern browser for the web UI
   sudo apt install sox   /   sudo dnf install sox   /   sudo pacman -S sox
 
 Voice models
