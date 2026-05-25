@@ -381,12 +381,15 @@ class BrowserApp:
   
   body.light-mode { --bg: #f5f5f5; --bg-light: #ffffff; --bg-sidebar: #f0f0f0; --border: #ddd; --text: #222; --text-muted: #666; }
   
-  body { margin: 0; min-height: 100vh; display: flex; background: var(--bg); color: var(--text); font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif; transition: background .2s, color .2s; }
+  body { margin: 0; min-height: 100vh; display: flex; background: var(--bg); color: var(--text); font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif; transition: background .2s, color .2s; overflow-x: hidden; }
   
   .sidebar { width: 300px; background: var(--bg-sidebar); border-right: 1px solid var(--border); overflow-y: auto; height: 100vh; position: fixed; left: 0; top: 0; }
   .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
   .theme-toggle { background: none; border: none; font-size: 1.2rem; cursor: pointer; }
+  .sidebar-overlay { display: none; }
   .main { flex: 1; margin-left: 300px; display: flex; justify-content: center; align-items: flex-start; padding: 24px; }
+  .mobile-topbar { display: none; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
   
   .sidebar-section { border-bottom: 1px solid var(--border); padding: 12px; }
   .sidebar-title { font-weight: 600; font-size: 0.9rem; color: var(--primary); margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
@@ -421,6 +424,7 @@ class BrowserApp:
   input[type="range"] { padding: 6px; }
   
   .controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .mobile-actions-bar { display: none; }
   button { border: none; border-radius: 8px; padding: 10px 16px; font-size: 0.9rem; cursor: pointer; transition: transform .15s, background .15s; font-weight: 500; }
   button:hover { transform: translateY(-2px); }
   .primary { background: var(--primary); color: white; }
@@ -436,7 +440,7 @@ class BrowserApp:
   
   .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; }
   .modal.open { display: flex; }
-  .modal-content { background: var(--bg-light); border-radius: 12px; padding: 24px; max-width: 500px; max-height: 80vh; overflow-y: auto; }
+  .modal-content { background: var(--bg-light); border-radius: 12px; padding: 24px; max-width: 500px; max-height: 80vh; overflow-y: auto; width: min(500px, calc(100vw - 32px)); }
   .modal-close { float: right; cursor: pointer; font-size: 1.5rem; color: var(--text-muted); }
   
   .shortcut-list { display: grid; gap: 10px; margin-top: 12px; }
@@ -444,14 +448,67 @@ class BrowserApp:
   .shortcut-key { font-weight: 600; color: var(--primary); font-family: monospace; }
   
   @media (max-width: 768px) {
-    .sidebar { width: 0; position: absolute; z-index: 999; }
-    .main { margin-left: 0; }
+    body.sidebar-open { overflow: hidden; }
+    .sidebar { width: min(320px, 86vw); max-width: 100%; z-index: 1100; transform: translateX(-100%); transition: transform .2s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.35); }
+    .sidebar.open { transform: translateX(0); }
+    .sidebar-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1050; }
+    .sidebar-overlay.open { display: block; }
+    .main { margin-left: 0; padding: 12px; width: 100%; }
+    .mobile-topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    .mobile-brand { font-size: 1rem; font-weight: 600; }
+    .mobile-actions { display: flex; align-items: center; gap: 8px; }
+    .container { width: 100%; }
+    .card { padding: 16px; border-radius: 12px; }
+    h1 { font-size: 1.4rem; margin-bottom: 16px; }
+    textarea { min-height: 160px; padding: 12px; }
+    textarea.batch-mode { min-height: 240px; }
+    .row { grid-template-columns: 1fr; gap: 12px; }
+    .controls { display: grid; grid-template-columns: 1fr 1fr; }
+    .controls button { width: 100%; }
+    .field-inline { gap: 10px; align-items: flex-start; }
+    .field-inline label { width: 100%; }
+    .toolbar { gap: 8px; }
+    .toolbar button { flex: 1 1 140px; }
+    .shortcut { grid-template-columns: 1fr; gap: 6px; }
+    .mobile-actions-bar {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      position: fixed;
+      left: 12px;
+      right: 12px;
+      bottom: 12px;
+      z-index: 1000;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--bg-light) 88%, transparent);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 12px 32px rgba(0,0,0,0.28);
+    }
+    .mobile-actions-bar button {
+      min-height: 48px;
+      font-size: 1rem;
+    }
+    .card { padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)); }
+  }
+
+  @media (max-width: 480px) {
+    .main { padding: 10px; }
+    .card { padding: 14px; padding-bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+    button { padding: 10px 12px; }
+    .controls { grid-template-columns: 1fr; }
+    .counter { line-height: 1.5; }
+    .mobile-topbar { margin-bottom: 10px; }
+    .mobile-actions-bar { left: 10px; right: 10px; bottom: 10px; }
   }
 </style>
 </head>
 <body>
 
-<div class="sidebar">
+<div id="sidebar-overlay" class="sidebar-overlay" onclick="closeSidebar()"></div>
+
+<div id="sidebar" class="sidebar">
   <div class="sidebar-header">
     <div style="font-weight: 600;">Piper</div>
     <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">🌙</button>
@@ -508,9 +565,16 @@ class BrowserApp:
 <div class="main">
   <div class="container">
     <div class="card">
+      <div class="mobile-topbar">
+        <button class="secondary small" type="button" onclick="toggleSidebar()">☰ Menu</button>
+        <div class="mobile-brand">Piper TTS</div>
+        <div class="mobile-actions">
+          <button class="secondary small" type="button" onclick="toggleTheme()" title="Toggle theme">◐</button>
+        </div>
+      </div>
       <h1>Piper TTS</h1>
       
-      <div style="display: flex; gap: 10px; margin-bottom: 12px;">
+      <div class="toolbar">
         <button class="secondary small" onclick="toggleBatchMode()" title="Switch to batch mode">📝 Batch</button>
         <button class="secondary small" onclick="showHelp()" title="Show keyboard shortcuts">⌨️ Help</button>
       </div>
@@ -518,6 +582,11 @@ class BrowserApp:
       <textarea id="text" placeholder="Type your text here... (Ctrl+Enter to speak, Escape to stop)" ondrop="handleDrop(event)" ondragover="event.preventDefault()" ondragenter="event.preventDefault()"></textarea>
       <div class="counter">
         <span id="char-count">0</span> characters | <span id="word-count">0</span> words | <span id="read-time">~0 sec</span> read
+      </div>
+      
+      <div class="mobile-actions-bar">
+        <button class="primary" type="button" onclick="onSpeak()">▶️ Speak</button>
+        <button class="secondary" type="button" onclick="onStop()">⏹️ Stop</button>
       </div>
       
       <div class="row">
@@ -562,6 +631,7 @@ class BrowserApp:
         <label><input type="checkbox" id="mute"> Mute</label>
         <label><input type="checkbox" id="autoClear"> Auto-clear</label>
         <label><input type="checkbox" id="cleanup"> Clean text</label>
+        <label><input type="checkbox" id="enterToSpeak"> Enter to speak</label>
         <span id="remote_info" style="color:var(--text-muted); font-size:0.85rem;"></span>
       </div>
       
@@ -609,6 +679,16 @@ const setStatus = msg => q('status').textContent = msg;
 let allHistory = [];
 
 const toggleSection = (id) => q(id).classList.toggle('open');
+const toggleSidebar = () => {
+  q('sidebar').classList.toggle('open');
+  q('sidebar-overlay').classList.toggle('open');
+  document.body.classList.toggle('sidebar-open');
+};
+const closeSidebar = () => {
+  q('sidebar').classList.remove('open');
+  q('sidebar-overlay').classList.remove('open');
+  document.body.classList.remove('sidebar-open');
+};
 const toggleTheme = () => {
   document.body.classList.toggle('light-mode');
   localStorage.setItem('theme', document.body.classList.contains('light-mode') ? 'light' : 'dark');
@@ -653,6 +733,7 @@ const cleanupText = (text) => {
 const loadState = async () => {
   const savedTheme = localStorage.getItem('theme');
   if (savedTheme === 'light') document.body.classList.add('light-mode');
+  q('enterToSpeak').checked = localStorage.getItem('enterToSpeak') === 'true';
   
   try {
     const res = await fetch('/api/status');
@@ -784,6 +865,9 @@ const updateLabel = id => {
 });
 
 q('text').addEventListener('input', updateCounter);
+q('enterToSpeak').addEventListener('change', () => {
+  localStorage.setItem('enterToSpeak', q('enterToSpeak').checked ? 'true' : 'false');
+});
 
 const readSettings = () => ({
   voice: q('voice').value,
@@ -795,10 +879,23 @@ const readSettings = () => ({
   mute: q('mute').checked,
 });
 
-const insertText = (text) => { q('text').value = text; q('text').focus(); updateCounter(); };
+const insertText = (text) => {
+  q('text').value = text;
+  q('text').focus();
+  updateCounter();
+  if (window.innerWidth <= 768) closeSidebar();
+};
 const insertHistoryText = (text) => insertText(text);
-const setVoice = (v) => { q('voice').value = v; updateSettings(); };
-const setDevice = (d) => { q('output_device').value = d; updateSettings(); };
+const setVoice = (v) => {
+  q('voice').value = v;
+  updateSettings();
+  if (window.innerWidth <= 768) closeSidebar();
+};
+const setDevice = (d) => {
+  q('output_device').value = d;
+  updateSettings();
+  if (window.innerWidth <= 768) closeSidebar();
+};
 
 const onSpeak = async () => {
   let text = q('text').value.trim();
@@ -934,6 +1031,19 @@ window.addEventListener('DOMContentLoaded', () => {
   updateCounter();
   
   q('text').addEventListener('keydown', event => {
+    if (
+      event.key === 'Enter' &&
+      q('enterToSpeak').checked &&
+      !event.shiftKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey
+    ) {
+      event.preventDefault();
+      onSpeak();
+      return;
+    }
+
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
       onSpeak();
@@ -944,6 +1054,10 @@ window.addEventListener('DOMContentLoaded', () => {
     if (event.key === 'Escape') { event.preventDefault(); onStop(); }
     if ((event.ctrlKey || event.metaKey) && event.key === 'l') { event.preventDefault(); onClear(); }
     if ((event.ctrlKey || event.metaKey) && event.key === 'b') { event.preventDefault(); toggleBatchMode(); }
+  });
+
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 768) closeSidebar();
   });
 });
 </script>
