@@ -9,7 +9,8 @@ This application is intentionally designed to be fully portable:
 - Just copy the entire folder anywhere
 - Place your voice models (*.onnx + *.onnx.json) in the voices/ subfolder
 - Run: python3 main.py
-- All settings, history and favorites are saved in config.json inside the same folder
+- All settings are saved in config.json inside the same folder
+- History, favorites, presets and recents are saved in separate JSON files in the same folder
 
 No installation, no system-wide dependencies beyond Python + GTK4 + audio tools.
 
@@ -65,7 +66,11 @@ piper-control-portable/
 ├── engine.py
 ├── settings.py
 ├── utils.py
-└── config.json           ← created automatically when you change something
+├── config.json           ← created automatically when you change settings
+├── history.json          ← created automatically from spoken text
+├── favorites.json        ← created automatically from saved favorites
+├── presets.json          ← created automatically from saved presets
+└── recents.json          ← created automatically from recent selections
 
 Basic usage
 -----------
@@ -109,7 +114,7 @@ Favorites:
 • "Use"   → loads text
 • "Delete" → removes from favorites
 
-All changes are saved instantly to config.json.
+All changes are saved instantly to the local JSON files.
 
 Troubleshooting quick list
 --------------------------
@@ -117,7 +122,7 @@ No voices shown           → No .onnx files in voices/ folder
 No sound                  → Check selected device, mute status, pw-play/paplay working?
 Volume slider ineffective → Install sox package
 Long device names ugly    → Should be ellipsized (GTK theme issue?)
-History/Favorites gone    → config.json deleted or corrupted
+History/Favorites gone    → history.json, favorites.json, or config.json deleted or corrupted
 App won't start           → Missing PyGObject / GTK4 packages
 
 Enjoy your portable TTS control!

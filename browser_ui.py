@@ -222,7 +222,15 @@ class BrowserApp:
         if history_path.exists():
             try:
                 with open(history_path, "r", encoding="utf-8") as f:
-                    return json.load(f) or []
+                    history = json.load(f) or []
+                    if not isinstance(history, list):
+                        return []
+                    history = [
+                        item for item in history
+                        if isinstance(item, dict) and item.get("text")
+                    ]
+                    history.sort(key=lambda item: item.get("timestamp", ""), reverse=True)
+                    return history[:10]
             except Exception:
                 return []
         return []
@@ -231,7 +239,7 @@ class BrowserApp:
         history_path = Path(__file__).parent / "history.json"
         try:
             with open(history_path, "w", encoding="utf-8") as f:
-                json.dump(self.history[-50:], f, indent=2)  # Keep last 50 items
+                json.dump(self.history[:10], f, indent=2)
         except Exception as e:
             print(f"Failed to save history: {e}")
 
@@ -255,10 +263,19 @@ class BrowserApp:
 
     def add_to_history(self, text: str):
         from datetime import datetime
-        self.history.append({
+        text = text.strip()
+        if not text:
+            return
+
+        self.history = [
+            item for item in self.history
+            if item.get("text") != text
+        ]
+        self.history.insert(0, {
             "text": text,
             "timestamp": datetime.now().isoformat(),
         })
+        self.history = self.history[:10]
         self.save_history()
 
     def load_presets(self):
@@ -699,6 +716,32 @@ const setStatus = msg => q('status').textContent = msg;
 let allHistory = [];
 let remoteUrl = '';
 
+const createItemRow = (label, title, actions) => {
+  const item = document.createElement('div');
+  item.className = 'item';
+
+  const text = document.createElement('span');
+  text.className = 'item-text';
+  text.textContent = label;
+  text.title = title || label;
+  item.appendChild(text);
+
+  const actionWrap = document.createElement('div');
+  actionWrap.className = 'item-actions';
+  actions.forEach(action => {
+    const button = document.createElement('button');
+    button.className = 'item-btn';
+    button.type = 'button';
+    button.textContent = action.label;
+    button.title = action.title;
+    button.addEventListener('click', action.onClick);
+    actionWrap.appendChild(button);
+  });
+  item.appendChild(actionWrap);
+
+  return item;
+};
+
 const toggleSection = (id) => q(id).classList.toggle('open');
 const toggleSidebar = () => {
   q('sidebar').classList.toggle('open');
@@ -815,7 +858,7 @@ const loadHistory = async () => {
   try {
     const res = await fetch('/api/history');
     const data = await res.json();
-    allHistory = data.history;
+    allHistory = Array.isArray(data.history) ? data.history : [];
     renderHistory(allHistory);
   } catch (e) {
     console.error('Failed to load history', e);
@@ -824,14 +867,26 @@ const loadHistory = async () => {
 
 const renderHistory = (items) => {
   const list = q('history-list');
-  list.innerHTML = items.slice().reverse().map(item => `
-    <div class="item">
-      <span class="item-text" title="${item.text}">${item.text}</span>
-      <div class="item-actions">
-        <button class="item-btn" onclick="insertHistoryText('${item.text.replace(/'/g, "\\'")}')" title="Use">↗</button>
-      </div>
-    </div>
-  `).join('');
+  list.replaceChildren();
+  if (!items.length) {
+    list.appendChild(createEmptyState('No history yet'));
+    return;
+  }
+
+  items.forEach(item => {
+    list.appendChild(createItemRow(item.text, item.text, [{
+      label: '↗',
+      title: 'Use',
+      onClick: () => insertHistoryText(item.text),
+    }]));
+  });
+};
+
+const createEmptyState = (text) => {
+  const empty = document.createElement('div');
+  empty.className = 'item';
+  empty.textContent = text;
+  return empty;
 };
 
 q('history-search').addEventListener('input', (e) => {
@@ -845,15 +900,26 @@ const loadFavorites = async () => {
     const res = await fetch('/api/favorites');
     const data = await res.json();
     const list = q('favorites-list');
-    list.innerHTML = Object.entries(data.favorites).map(([name, text]) => `
-      <div class="item">
-        <span class="item-text" title="${name}: ${text}">${name}</span>
-        <div class="item-actions">
-          <button class="item-btn" onclick="insertHistoryText('${text.replace(/'/g, "\\'")}')" title="Use">↗</button>
-          <button class="item-btn" onclick="removeFavorite('${name.replace(/'/g, "\\\\'")}')" title="Delete">✕</button>
-        </div>
-      </div>
-    `).join('');
+    list.replaceChildren();
+    const favorites = Object.entries(data.favorites || {});
+    if (!favorites.length) {
+      list.appendChild(createEmptyState('No favorites yet'));
+      return;
+    }
+    favorites.forEach(([name, text]) => {
+      list.appendChild(createItemRow(name, `${name}: ${text}`, [
+        {
+          label: '↗',
+          title: 'Use',
+          onClick: () => insertHistoryText(text),
+        },
+        {
+          label: '✕',
+          title: 'Delete',
+          onClick: () => removeFavorite(name),
+        },
+      ]));
+    });
   } catch (e) {
     console.error('Failed to load favorites', e);
   }
@@ -864,15 +930,26 @@ const loadPresets = async () => {
     const res = await fetch('/api/presets');
     const data = await res.json();
     const list = q('presets-list');
-    list.innerHTML = Object.entries(data.presets).map(([name, preset]) => `
-      <div class="item">
-        <span class="item-text" title="${name}">${name}</span>
-        <div class="item-actions">
-          <button class="item-btn" onclick="loadPreset('${name}')" title="Load">↗</button>
-          <button class="item-btn" onclick="deletePreset('${name}')" title="Delete">✕</button>
-        </div>
-      </div>
-    `).join('');
+    list.replaceChildren();
+    const presets = Object.entries(data.presets || {});
+    if (!presets.length) {
+      list.appendChild(createEmptyState('No presets saved yet'));
+      return;
+    }
+    presets.forEach(([name, preset]) => {
+      list.appendChild(createItemRow(name, name, [
+        {
+          label: '↗',
+          title: 'Load',
+          onClick: () => loadPreset(name),
+        },
+        {
+          label: '✕',
+          title: 'Delete',
+          onClick: () => deletePreset(name),
+        },
+      ]));
+    });
   } catch (e) {
     console.error('Failed to load presets', e);
   }
@@ -941,33 +1018,41 @@ const setDevice = (d) => {
 };
 
 const onSpeak = async () => {
-  let text = q('text').value.trim();
-  if (!text) { setStatus('Enter text before speaking'); return; }
-  if (q('cleanup').checked) text = cleanupText(text);
-  
-  const isBatch = q('text').classList.contains('batch-mode');
-  if (isBatch) {
-    const lines = text.split('\\n').filter(l => l.trim());
-    for (const line of lines) {
-      const body = {...readSettings(), text: line};
-      await fetch('/api/speak', {
+  try {
+    let text = q('text').value.trim();
+    if (!text) { setStatus('Enter text before speaking'); return; }
+    if (q('cleanup').checked) text = cleanupText(text);
+    
+    const isBatch = q('text').classList.contains('batch-mode');
+    if (isBatch) {
+      const lines = text.split('\\n').filter(l => l.trim());
+      for (const line of lines) {
+        const body = {...readSettings(), text: line};
+        const res = await fetch('/api/speak', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error('Failed to speak batch line');
+        await new Promise(r => setTimeout(r, 500));
+      }
+      setStatus('Batch complete');
+      await loadHistory();
+    } else {
+      const body = {...readSettings(), text};
+      const res = await fetch('/api/speak', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(body),
       });
-      await new Promise(r => setTimeout(r, 500));
+      if (!res.ok) throw new Error('Failed to speak text');
+      setStatus('Speaking...');
+      await loadHistory();
     }
-    setStatus('Batch complete');
-  } else {
-    const body = {...readSettings(), text};
-    await fetch('/api/speak', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(body),
-    });
-    setStatus('Speaking...');
+    if (q('autoClear').checked) setTimeout(() => { q('text').value = ''; updateCounter(); }, 100);
+  } catch (error) {
+    setStatus(error.message || 'Failed to speak');
   }
-  if (q('autoClear').checked) setTimeout(() => { q('text').value = ''; updateCounter(); }, 100);
 };
 
 const onStop = async () => {
